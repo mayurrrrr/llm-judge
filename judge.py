@@ -3,31 +3,58 @@ LLM-as-a-Judge evaluation logic using Gemini API
 """
 import re
 import google.generativeai as genai
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 
 
-IMPROVED_JUDGE_PROMPT = """You are an expert evaluator assessing the quality of AI-generated answers.
+EVALUATION_PROMPT = """You are an expert evaluator assessing the quality of AI-generated answers.
 
-Question: {question}
+**Context/Question:**
+---
+{question}
+---
 
-Answer: {answer}
+**Answer:**
+---
+{answer}
+---
 
-Please evaluate this answer based on the following criteria:
-1. **Accuracy**: Is the answer factually correct and relevant to the question?
-2. **Completeness**: Does it address all aspects of the question?
-3. **Clarity**: Is the answer well-structured and easy to understand?
-4. **Depth**: Does it provide sufficient detail and insight?
+Please evaluate the answer based on the following criteria on a scale of 1 to 10:
+
+1.  **Relevance**: How relevant is the response to the given input and context?
+    - 1: Completely irrelevant.
+    - 5: Partially relevant, but misses key aspects of the question.
+    - 10: Perfectly relevant and directly addresses all parts of the question.
+
+2.  **Clarity**: How clear and understandable is the generated output?
+    - 1: Incoherent and impossible to understand.
+    - 5: Understandable, but requires effort to follow due to poor structure or jargon.
+    - 10: Perfectly clear, concise, and easy to understand.
+    
+3.  **Consistency**: How consistent are the results across multiple runs?
+    - 1: Highly inconsistent and contradictory.
+    - 5: Generally consistent, but with some contradictions.
+    - 10: Perfectly consistent and reliable.
+    
+4.  **Creativity/Innovation**: For creative tasks, how original or innovative is the output?
+    - 1: Plagiarized or completely unoriginal.
+    - 5: Some originality, but mostly derivative.
+    - 10: Highly original and innovative.
 
 Provide your evaluation in the following format:
 
-**Evaluation:**
-[Your detailed feedback here]
+**Relevance:** [Your detailed feedback on relevance]
+**Relevance Score:** [A number from 1 to 10]
 
-**Total Rating:** [A number from 1 to 4, where:
-- 1 = Poor (major issues in accuracy, completeness, or clarity)
-- 2 = Fair (some issues but partially addresses the question)
-- 3 = Good (solid answer with minor issues)
-- 4 = Excellent (comprehensive, accurate, and well-presented)]
+**Clarity:** [Your detailed feedback on clarity]
+**Clarity Score:** [A number from 1 to 10]
+
+**Consistency:** [Your detailed feedback on consistency]
+**Consistency Score:** [A number from 1 to 10]
+
+**Creativity/Innovation:** [Your detailed feedback on creativity]
+**Creativity Score:** [A number from 1 to 10]
+
+**Total Score:** [The average of all scores, from 1 to 10]
 """
 
 
@@ -39,8 +66,9 @@ def configure_gemini(api_key: str) -> None:
 def evaluate_with_gemini(
     question: str,
     answer: str,
-    model_name: str = "gemini-2.5-flash"
-) -> Tuple[str, Optional[int]]:
+    model_name: str = "gemini-2.5-flash",
+    temperature: float = 0.5
+) -> Tuple[str, Dict[str, Optional[int]], str]:
     """
     Evaluate an answer using Gemini API.
     
@@ -48,16 +76,21 @@ def evaluate_with_gemini(
         question: The original question
         answer: The model-generated answer to evaluate
         model_name: The Gemini model to use for evaluation
+        temperature: The temperature for the model generation
     
     Returns:
-        Tuple of (feedback_text, rating) where rating is 1-4 or None if parsing failed
+        Tuple of (feedback_text, scores_dict, prompt_text)
     """
     try:
         # Create the prompt
-        prompt = IMPROVED_JUDGE_PROMPT.format(question=question, answer=answer)
+        prompt = EVALUATION_PROMPT.format(question=question, answer=answer)
         
         # Initialize the model
-        model = genai.GenerativeModel(model_name)
+        generation_config = {"temperature": temperature}
+        model = genai.GenerativeModel(
+            model_name,
+            generation_config=generation_config
+        )
         
         # Generate evaluation
         response = model.generate_content(prompt)
@@ -66,38 +99,109 @@ def evaluate_with_gemini(
         feedback_text = response.text
         
         # Parse the rating from the response
-        rating = extract_rating(feedback_text)
-        
-        return feedback_text, rating
+        scores = {
+            "total": extract_rating(feedback_text),
+            "relevance": extract_relevance_score(feedback_text),
+            "clarity": extract_clarity_score(feedback_text),
+            "consistency": extract_consistency_score(feedback_text),
+            "creativity": extract_creativity_score(feedback_text),
+        }
+            
+        return feedback_text, scores, prompt
         
     except Exception as e:
         error_msg = f"Error during evaluation: {str(e)}"
-        return error_msg, None
+        prompt_for_error = EVALUATION_PROMPT.format(question=question, answer=answer)
+        return error_msg, {
+            "total": None, "relevance": None, "clarity": None,
+            "consistency": None, "creativity": None
+        }, prompt_for_error
 
 
 def extract_rating(text: str) -> Optional[int]:
     """
-    Extract the rating (1-4) from the evaluation text.
+    Extract the rating from the evaluation text.
     
     Args:
         text: The evaluation response text
     
     Returns:
-        The rating as an integer (1-4) or None if not found
+        The rating as an integer or None if not found
     """
-    # Look for patterns like "Total Rating: 3" or "Rating:** 3"
+    # Look for patterns like "Total Rating: 3" or "Rating:** 3" or "Total Score: 8"
     patterns = [
-        r'Total Rating[:\s]*\*?\*?\s*(\d)',
-        r'Rating[:\s]*\*?\*?\s*(\d)',
-        r'Score[:\s]*\*?\*?\s*(\d)',
+        r'Total Score[:\s]*\*?\*?\s*(\d{1,2})',
+        r'Total Rating[:\s]*\*?\*?\s*(\d{1,2})',
+        r'Rating[:\s]*\*?\*?\s*(\d{1,2})',
+        r'Score[:\s]*\*?\*?\s*(\d{1,2})',
     ]
     
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             rating = int(match.group(1))
-            if 1 <= rating <= 4:
+            if 1 <= rating <= 10:
                 return rating
     
+    return None
+
+
+def extract_relevance_score(text: str) -> Optional[int]:
+    """
+    Extract the relevance score (1-10) from the evaluation text.
+    
+    Args:
+        text: The evaluation response text
+    
+    Returns:
+        The relevance score as an integer (1-10) or None if not found
+    """
+    match = re.search(r'Relevance Score[:\s-]*\*?\*?\s*(\d{1,2})', text, re.IGNORECASE)
+    if match:
+        score = int(match.group(1))
+        if 1 <= score <= 10:
+            return score
+    return None
+
+
+def extract_clarity_score(text: str) -> Optional[int]:
+    """
+    Extract the clarity score (1-10) from the evaluation text.
+    
+    Args:
+        text: The evaluation response text
+    
+    Returns:
+        The clarity score as an integer (1-10) or None if not found
+    """
+    match = re.search(r'Clarity Score[:\s-]*\*?\*?\s*(\d{1,2})', text, re.IGNORECASE)
+    if match:
+        score = int(match.group(1))
+        if 1 <= score <= 10:
+            return score
+    return None
+
+
+def extract_consistency_score(text: str) -> Optional[int]:
+    """
+    Extract the consistency score (1-10) from the evaluation text.
+    """
+    match = re.search(r'Consistency Score[:\s-]*\*?\*?\s*(\d{1,2})', text, re.IGNORECASE)
+    if match:
+        score = int(match.group(1))
+        if 1 <= score <= 10:
+            return score
+    return None
+
+
+def extract_creativity_score(text: str) -> Optional[int]:
+    """
+    Extract the creativity score (1-10) from the evaluation text.
+    """
+    match = re.search(r'Creativity(?:/Innovation)? Score[:\s-]*\*?\*?\s*(\d{1,2})', text, re.IGNORECASE)
+    if match:
+        score = int(match.group(1))
+        if 1 <= score <= 10:
+            return score
     return None
 

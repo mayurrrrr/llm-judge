@@ -22,5 +22,5 @@ class EvaluationResult(BaseModel):
     Schema for evaluation results from the judge
     """
     feedback: str = Field(..., description="Feedback from the LLM judge")
-    total_rating: int = Field(..., ge=1, le=4, description="Rating from 1 to 4")
+    total_rating: int = Field(..., ge=1, le=10, description="Rating from 1 to 10")
 
