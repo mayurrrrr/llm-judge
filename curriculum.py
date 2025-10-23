@@ -2,7 +2,7 @@
 
 from typing import Dict, Any
 import json
-from schemas.base import CurriculumResponse
+from schemas.curriculum import CurriculumResponse
 
 class CurriculumPrompt:
     """Manages prompt templates for curriculum-based intervention generation."""
