@@ -205,3 +205,36 @@ def extract_creativity_score(text: str) -> Optional[int]:
             return score
     return None
 
+
+def generate_with_llm(
+    prompt: str,
+    provider: str,
+    model_name: str,
+    temperature: float = 0.5
+) -> str:
+    """
+    Generate content using a specified LLM provider.
+    
+    Args:
+        prompt: The full prompt to send to the model
+        provider: The LLM provider ('gemini' or 'openai')
+        model_name: The specific model to use
+        temperature: The generation temperature
+        
+    Returns:
+        The generated text content
+    """
+    try:
+        if provider == 'gemini':
+            generation_config = {"temperature": temperature}
+            model = genai.GenerativeModel(
+                model_name,
+                generation_config=generation_config
+            )
+            response = model.generate_content(prompt)
+            return response.text
+        else:
+            return f"Error: Unsupported provider '{provider}'"
+            
+    except Exception as e:
+        return f"Error during generation: {str(e)}"
