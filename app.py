@@ -146,7 +146,11 @@ with individual_tab:
             "grade_level": "1", "skill_areas": ["emotional_awareness"], "score": 25.0
         }
         
-        default_input = json.dumps(example_emt, indent=2)
+        # Set default input based on prompt type
+        if prompt_type == 'emt':
+            default_input = json.dumps(example_emt, indent=2)
+        else:
+            default_input = json.dumps(example_curriculum, indent=2)
 
         input_data_str = st.text_area(
             "Input Data (JSON format)",
@@ -207,7 +211,8 @@ with individual_tab:
                     prompt = CurriculumPrompt.get_prompt(generator_provider, input_data)
 
                 with generated_prompt_placeholder.container():
-                    st.code(prompt, language='markdown')
+                    with st.expander("📝 View Generated Prompt", expanded=True):
+                        st.code(prompt, language='markdown')
 
                 # Step 2: Generate answer with LLM
                 with st.spinner("Generating answer..."):
